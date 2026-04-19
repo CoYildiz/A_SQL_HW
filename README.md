@@ -45,6 +45,4 @@ Bu işlemden sonra uygulama `setup.sql` dosyasını baştan çalıştırarak ver
 Şema ve seed verileri [setup.sql](setup.sql) içinde tanımlıdır. Veritabanı dosyası otomatik oluşturulur; ayrıca elle kurulum yapmanız gerekmez.
 Seed kullanıcıların varsayılan şifresi `1234` olarak ayarlanmıştır.
 
-## Rapor
 
-Detaylı açıklama ve ER diyagramı için [Yeni_Proje_Raporu.md](Yeni_Proje_Raporu.md) dosyasına bakabilirsiniz.
