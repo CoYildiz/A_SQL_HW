@@ -1,0 +1,5 @@
+# This project uses only Python standard library modules.
+# No external pip dependencies are required.
+# Tkinter is required from the system Python installation; it is not installed via pip.
+# Run with Python 3.x:
+#   python3 app.py
