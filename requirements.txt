@@ -1,5 +1,30 @@
 # This project uses only Python standard library modules.
 # No external pip dependencies are required.
-# Tkinter is required from the system Python installation; it is not installed via pip.
-# Run with Python 3.x:
-#   python3 app.py
+#
+# Standard library modules used (for reference):
+#   - tkinter     : GUI (tkinter + ttk + messagebox)
+#   - sqlite3     : Database (SQLite, bundled with Python)
+#   - hashlib     : Password hashing (SHA-256)
+#   - pathlib     : File path handling
+#   - datetime    : Date and time operations
+#   - re          : Regex validation (seat number, card number, etc.)
+#   - random      : PNR / ticket number generation
+#   - string      : Character sets for PNR generation
+#
+# Python >= 3.9 is recommended.
+#
+# Tkinter is NOT installed via pip — it requires a system-level package:
+#   Ubuntu / Debian : sudo apt install python3-tk
+#   Fedora / RHEL   : sudo dnf install python3-tkinter
+#   macOS (Homebrew): brew install python-tk
+#   Windows         : Bundled with the official python.org installer (tcl/tk option).
+#
+# SQLite is bundled with Python; no separate installation needed.
+#
+# Run with:
+#   python3 app_v6.py
+#
+# The database (airline.db) is created automatically on first run.
+# To reset, delete airline.db and run again.
+# Alternatively, initialise the database manually:
+#   sqlite3 airline.db < setup.sql

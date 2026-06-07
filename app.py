@@ -39,13 +39,19 @@ BOOKING_STATUSES = ("PendingPayment", "Confirmed", "Ticketed", "Cancelled", "Ref
 PAYMENT_TYPES = ("Card", "Credit Card", "Online", "Transfer", "Google Pay", "Cash")
 SPECIAL_REQUEST_TYPES = (
     "Wheelchair Assistance",
-    "Extra Baggage",
-    "Meal Preference",
-    "Pet in Cabin",
     "Seat Change",
     "Cancellation Request",
     "Refund Request",
     "Other",
+)
+
+# Paid options selected during booking. These are not admin tickets; they are
+# added to the ticket price immediately.
+BOOKING_ADDON_SEED = (
+    ("BAG10", "Extra Baggage 10 kg", 650.00),
+    ("BAG20", "Extra Baggage 20 kg", 1150.00),
+    ("MEAL", "Meal Preference", 180.00),
+    ("PETCABIN", "Pet in Cabin", 900.00),
 )
 
 
@@ -206,6 +212,13 @@ class Repository:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_ps ON Auth_Accounts(Ps_ID) WHERE Ps_ID IS NOT NULL;
             CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_emp ON Auth_Accounts(Emp_ID) WHERE Emp_ID IS NOT NULL;
 
+            CREATE TABLE IF NOT EXISTS Addon_Catalog (
+                Addon_Code TEXT PRIMARY KEY,
+                Addon_Name TEXT NOT NULL UNIQUE,
+                Price REAL NOT NULL CHECK (Price >= 0),
+                Is_Active INTEGER NOT NULL DEFAULT 1 CHECK (Is_Active IN (0, 1))
+            );
+
             CREATE TABLE IF NOT EXISTS Bookings (
                 Booking_ID INTEGER PRIMARY KEY AUTOINCREMENT,
                 PNR TEXT NOT NULL UNIQUE,
@@ -222,6 +235,16 @@ class Repository:
                 FOREIGN KEY (Ps_ID) REFERENCES Passengers(Ps_ID) ON DELETE CASCADE,
                 FOREIGN KEY (Flight_ID) REFERENCES Flight(Flight_ID) ON DELETE RESTRICT,
                 FOREIGN KEY (Fare_ID) REFERENCES AirFare(Fare_ID) ON DELETE SET NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS Booking_Addons (
+                Booking_Addon_ID INTEGER PRIMARY KEY AUTOINCREMENT,
+                Booking_ID INTEGER NOT NULL,
+                Addon_Code TEXT NOT NULL,
+                Price_At_Booking REAL NOT NULL CHECK (Price_At_Booking >= 0),
+                FOREIGN KEY (Booking_ID) REFERENCES Bookings(Booking_ID) ON DELETE CASCADE,
+                FOREIGN KEY (Addon_Code) REFERENCES Addon_Catalog(Addon_Code) ON DELETE RESTRICT,
+                UNIQUE (Booking_ID, Addon_Code)
             );
 
             CREATE TABLE IF NOT EXISTS Payments (
@@ -323,7 +346,8 @@ class Repository:
                 SELECT RAISE(ABORT, 'Departure date cannot be earlier than booking date');
             END;
 
-            CREATE VIEW IF NOT EXISTS v_booking_overview AS
+            DROP VIEW IF EXISTS v_booking_overview;
+            CREATE VIEW v_booking_overview AS
             SELECT
                 b.Booking_ID,
                 b.PNR,
@@ -338,6 +362,8 @@ class Repository:
                 b.Seat_No,
                 b.Status AS Booking_Status,
                 b.Amount,
+                COALESCE(ax.Addon_Total, 0) AS Addon_Total,
+                COALESCE(ax.Addons, '-') AS Addons,
                 pay.Payment_Type,
                 pay.Status AS Payment_Status,
                 t.Ticket_No,
@@ -347,6 +373,15 @@ class Repository:
             JOIN Passengers p ON p.Ps_ID = b.Ps_ID
             JOIN Flight f ON f.Flight_ID = b.Flight_ID
             JOIN Route r ON r.Route_ID = f.Route_ID
+            LEFT JOIN (
+                SELECT
+                    ba.Booking_ID,
+                    SUM(ba.Price_At_Booking) AS Addon_Total,
+                    GROUP_CONCAT(ac.Addon_Name || ' (+₺' || printf('%.2f', ba.Price_At_Booking) || ')', ', ') AS Addons
+                FROM Booking_Addons ba
+                JOIN Addon_Catalog ac ON ac.Addon_Code = ba.Addon_Code
+                GROUP BY ba.Booking_ID
+            ) ax ON ax.Booking_ID = b.Booking_ID
             LEFT JOIN Payments pay ON pay.Booking_ID = b.Booking_ID
             LEFT JOIN Tickets t ON t.Booking_ID = b.Booking_ID;
             """
@@ -366,56 +401,116 @@ class Repository:
                 ('TR', 'Turkiye'),
                 ('DE', 'Germany'),
                 ('GB', 'United Kingdom'),
-                ('US', 'United States');
+                ('US', 'United States'),
+                ('FR', 'France'),
+                ('NL', 'Netherlands'),
+                ('IT', 'Italy');
 
             INSERT OR IGNORE INTO Airport (Air_Code, Air_Name, City, State, Country_code) VALUES
                 ('IST', 'Istanbul Airport', 'Istanbul', 'Marmara', 'TR'),
+                ('SAW', 'Sabiha Gokcen International Airport', 'Istanbul', 'Marmara', 'TR'),
                 ('ESB', 'Esenboga Airport', 'Ankara', 'Central Anatolia', 'TR'),
                 ('ADB', 'Adnan Menderes Airport', 'Izmir', 'Aegean', 'TR'),
                 ('AYT', 'Antalya Airport', 'Antalya', 'Mediterranean', 'TR'),
                 ('TZX', 'Trabzon Airport', 'Trabzon', 'Black Sea', 'TR'),
                 ('ADA', 'Adana Airport', 'Adana', 'Mediterranean', 'TR'),
+                ('DLM', 'Dalaman Airport', 'Mugla', 'Aegean', 'TR'),
                 ('LHR', 'Heathrow Airport', 'London', 'England', 'GB'),
-                ('JFK', 'John F. Kennedy International Airport', 'New York', 'New York', 'US');
+                ('JFK', 'John F. Kennedy International Airport', 'New York', 'New York', 'US'),
+                ('CDG', 'Charles de Gaulle Airport', 'Paris', 'Ile-de-France', 'FR'),
+                ('AMS', 'Amsterdam Airport Schiphol', 'Amsterdam', 'North Holland', 'NL'),
+                ('FCO', 'Rome Fiumicino Airport', 'Rome', 'Lazio', 'IT'),
+                ('BER', 'Berlin Brandenburg Airport', 'Berlin', 'Brandenburg', 'DE');
 
             INSERT OR IGNORE INTO Airplane_type (A_ID, Capacity, A_weight, Company) VALUES
                 (1, 180, 73500, 'Airbus A320'),
                 (2, 160, 70500, 'Boeing 737'),
                 (3, 260, 125000, 'Airbus A330'),
-                (4, 300, 145000, 'Boeing 777');
+                (4, 300, 145000, 'Boeing 777'),
+                (5, 220, 98000, 'Airbus A321neo'),
+                (6, 280, 138000, 'Boeing 787');
 
             INSERT OR IGNORE INTO Route (Route_ID, Destination, Take_Off_point, R_type) VALUES
                 (1, 'ESB', 'IST', 'Domestic'),
                 (2, 'AYT', 'ADB', 'Domestic'),
                 (3, 'TZX', 'IST', 'Domestic'),
                 (4, 'ADA', 'IST', 'Domestic'),
-                (5, 'LHR', 'IST', 'International'),
-                (6, 'JFK', 'IST', 'International');
+                (5, 'DLM', 'SAW', 'Domestic'),
+                (6, 'IST', 'AYT', 'Domestic'),
+                (7, 'LHR', 'IST', 'International'),
+                (8, 'JFK', 'IST', 'International'),
+                (9, 'CDG', 'IST', 'International'),
+                (10, 'AMS', 'SAW', 'International'),
+                (11, 'FCO', 'IST', 'International'),
+                (12, 'BER', 'IST', 'International'),
+                (13, 'IST', 'JFK', 'International'),
+                (14, 'IST', 'LHR', 'International');
 
             INSERT OR IGNORE INTO AirFare (Fare_ID, Charge_Amount, Description) VALUES
                 (1, 1499.90, 'Economy Base Fare'),
                 (2, 2399.50, 'Flexible Fare'),
                 (3, 3499.00, 'Domestic Business'),
                 (4, 12999.00, 'International Economy'),
-                (5, 24999.00, 'International Business');
+                (5, 24999.00, 'International Business'),
+                (6, 6999.00, 'Promo International'),
+                (7, 4999.00, 'Premium Domestic');
+
+            INSERT OR IGNORE INTO Addon_Catalog (Addon_Code, Addon_Name, Price, Is_Active) VALUES
+                ('BAG10', 'Extra Baggage 10 kg', 650.00, 1),
+                ('BAG20', 'Extra Baggage 20 kg', 1150.00, 1),
+                ('MEAL', 'Meal Preference', 180.00, 1),
+                ('PETCABIN', 'Pet in Cabin', 900.00, 1);
 
             INSERT OR IGNORE INTO Flight (Flight_ID, Flight_No, Departure, Arrival, Flight_date, Route_ID, A_ID, Fare_ID) VALUES
-                (1, 'TK100', '09:00', '10:10', '2026-07-15', 1, 1, 1),
-                (2, 'TK204', '14:00', '15:20', '2026-07-15', 2, 2, 2),
-                (3, 'TK311', '18:20', '20:05', '2026-07-18', 3, 1, 1),
-                (4, 'TK420', '08:45', '10:20', '2026-07-20', 4, 2, 2),
-                (5, 'TK512', '11:30', '13:50', '2026-08-02', 5, 3, 4),
-                (6, 'TK901', '01:15', '12:45', '2026-08-16', 6, 4, 5);
+                (1, 'TK100', '09:00', '10:10', date('now', '+30 days'), 1, 1, 1),
+                (2, 'TK204', '14:00', '15:20', date('now', '+31 days'), 2, 2, 2),
+                (3, 'TK311', '18:20', '20:05', date('now', '+34 days'), 3, 1, 1),
+                (4, 'TK420', '08:45', '10:20', date('now', '+37 days'), 4, 2, 2),
+                (5, 'TK512', '11:30', '12:45', date('now', '+40 days'), 5, 5, 3),
+                (6, 'TK626', '17:15', '18:35', date('now', '+41 days'), 6, 2, 1),
+                (7, 'TK700', '07:40', '10:05', date('now', '+45 days'), 7, 3, 4),
+                (8, 'TK901', '01:15', '12:45', date('now', '+50 days'), 8, 4, 5),
+                (9, 'TK1821', '12:30', '15:10', date('now', '+52 days'), 9, 3, 6),
+                (10, 'TK1953', '16:20', '19:00', date('now', '+54 days'), 10, 5, 6),
+                (11, 'TK1865', '10:10', '12:45', date('now', '+56 days'), 11, 3, 4),
+                (12, 'TK1721', '20:00', '22:10', date('now', '+58 days'), 12, 5, 6),
+                (13, 'TK003', '13:30', '17:55', date('now', '+60 days'), 13, 6, 5),
+                (14, 'TK1980', '21:15', '03:05', date('now', '+62 days'), 14, 3, 4),
+                (15, 'TK145', '06:20', '07:30', date('now', '+65 days'), 1, 1, 1),
+                (16, 'TK209', '19:25', '20:45', date('now', '+66 days'), 2, 2, 2),
+                (17, 'TK315', '22:00', '23:40', date('now', '+68 days'), 3, 1, 3),
+                (18, 'TK428', '12:15', '13:45', date('now', '+70 days'), 4, 2, 7);
 
             INSERT OR IGNORE INTO Passengers (Ps_ID, Name, Address, Age, Sex, Contacts) VALUES
                 (1, 'Buse Yilmaz', 'Istanbul', 22, 'F', '+90-555-010-1010'),
                 (2, 'Mert Kaya', 'Izmir', 24, 'M', '+90-555-020-2020'),
-                (3, 'Aylin Demir', 'Ankara', 27, 'F', '+90-555-030-3030');
+                (3, 'Aylin Demir', 'Ankara', 27, 'F', '+90-555-030-3030'),
+                (4, 'Emre Sahin', 'Bursa', 31, 'M', '+90-555-040-4040'),
+                (5, 'Zeynep Arslan', 'Antalya', 29, 'F', '+90-555-050-5050'),
+                (6, 'Can Yildiz', 'Trabzon', 34, 'M', '+90-555-060-6060'),
+                (7, 'Ece Korkmaz', 'Adana', 26, 'F', '+90-555-070-7070'),
+                (8, 'Deniz Acar', 'Mugla', 38, 'Other', '+90-555-080-8080'),
+                (9, 'Selin Ozturk', 'Istanbul', 21, 'F', '+90-555-090-9090'),
+                (10, 'Kerem Celik', 'Ankara', 45, 'M', '+90-555-100-1010'),
+                (11, 'Melis Kaplan', 'Izmir', 33, 'F', '+90-555-110-1111'),
+                (12, 'Burak Polat', 'Konya', 28, 'M', '+90-555-120-1212'),
+                (13, 'Irem Koc', 'Eskisehir', 25, 'F', '+90-555-130-1313'),
+                (14, 'Onur Gunes', 'Samsun', 41, 'M', '+90-555-140-1414'),
+                (15, 'Derya Aydin', 'Kayseri', 36, 'F', '+90-555-150-1515'),
+                (16, 'Tolga Ergin', 'Mersin', 39, 'M', '+90-555-160-1616'),
+                (17, 'Nil Kara', 'Gaziantep', 23, 'F', '+90-555-170-1717'),
+                (18, 'Ali Eren', 'Diyarbakir', 30, 'M', '+90-555-180-1818'),
+                (19, 'Yagmur Sari', 'Balikesir', 32, 'F', '+90-555-190-1919'),
+                (20, 'Ozan Demirci', 'Kocaeli', 44, 'M', '+90-555-200-2020'),
+                (21, 'Ceren Aksoy', 'London', 28, 'F', '+44-7700-900001'),
+                (22, 'Arda Basaran', 'New York', 35, 'M', '+1-212-555-0101'),
+                (23, 'Mina Cakir', 'Paris', 27, 'F', '+33-1-5555-0102'),
+                (24, 'Sarp Uslu', 'Amsterdam', 40, 'M', '+31-20-555-0103'),
+                (25, 'Elif Tunc', 'Berlin', 30, 'F', '+49-30-555-0104'),
+                (26, 'Kaan Ersoy', 'Rome', 37, 'M', '+39-06-555-0105');
 
             INSERT OR IGNORE INTO Employees (Emp_ID, Name, Address, Age, Email_ID, Contacts, Air_Code) VALUES
-                (1, 'Online Sales System', 'Istanbul', 30, 'online.sales@demo.local', '+90-555-000-0001', 'IST'),
-                (2, 'Ayse Yilmaz', 'Istanbul', 31, 'ayse.employee@demo.local', '+90-555-111-2233', 'IST'),
-                (3, 'Can Kaya', 'Ankara', 29, 'can.employee@demo.local', '+90-555-444-5566', 'ESB');
+                (1, 'Online Sales System', 'Istanbul', 30, 'online.sales@demo.local', '+90-555-000-0001', 'IST');
             """
         )
         conn.execute(
@@ -427,6 +522,8 @@ class Repository:
             """,
             (default_hash,),
         )
+        # Remove any extra admins from older DB versions — keep only Online Sales System (Emp_ID=1)
+        conn.execute("DELETE FROM Employees WHERE Emp_ID <> 1")
         conn.execute(
             """
             INSERT INTO Auth_Accounts (Role, Emp_ID, Password_Hash)
@@ -437,22 +534,57 @@ class Repository:
             (default_hash,),
         )
 
-        # Seed two realistic paid bookings only if no booking exists.
-        # Use dynamic future dates so the demo still works when run after 2026-07.
+        # Seed realistic paid bookings only if no booking exists.
         existing = conn.execute("SELECT COUNT(*) AS n FROM Bookings").fetchone()["n"]
         if existing == 0:
-            base = datetime.now().date()
-            future_dates = [
-                (1, (base + timedelta(days=30)).isoformat()),
-                (2, (base + timedelta(days=31)).isoformat()),
-                (3, (base + timedelta(days=34)).isoformat()),
-                (4, (base + timedelta(days=37)).isoformat()),
-                (5, (base + timedelta(days=50)).isoformat()),
-                (6, (base + timedelta(days=64)).isoformat()),
+            seed_bookings = [
+                (1, 1, "12A", "Card", ["BAG10"]),
+                (2, 2, "9C", "Online", ["MEAL"]),
+                (3, 3, "5E", "Credit Card", ["BAG20", "MEAL"]),
+                (4, 4, "14D", "Transfer", []),
+                (5, 5, "3A", "Card", ["PETCABIN"]),
+                (6, 6, "18F", "Cash", []),
+                (7, 7, "21C", "Google Pay", ["BAG10"]),
+                (8, 8, "5D", "Credit Card", ["BAG20"]),
+                (9, 9, "10A", "Online", ["MEAL"]),
+                (10, 10, "11B", "Card", []),
+                (11, 11, "2C", "Transfer", ["BAG10", "MEAL"]),
+                (12, 12, "16E", "Online", []),
+                (13, 13, "8A", "Credit Card", ["PETCABIN"]),
+                (14, 14, "22F", "Card", ["BAG20"]),
+                (15, 15, "6A", "Card", []),
+                (16, 16, "4C", "Online", ["MEAL"]),
+                (17, 17, "13D", "Cash", ["BAG10"]),
+                (18, 18, "15B", "Transfer", []),
             ]
-            conn.executemany("UPDATE Flight SET Flight_date=? WHERE Flight_ID=?", [(d, fid) for fid, d in future_dates])
-            self._create_paid_booking_conn(conn, 1, 1, "12A", "Card", seed=True)
-            self._create_paid_booking_conn(conn, 2, 2, "9C", "Online", seed=True)
+            created: dict[int, int] = {}
+            for ps_id, flight_id, seat, payment_type, addon_codes in seed_bookings:
+                result = self._create_paid_booking_conn(
+                    conn, ps_id, flight_id, seat, payment_type, addon_codes=addon_codes, seed=True
+                )
+                created[ps_id] = int(result["booking_id"])
+
+            conn.execute(
+                """
+                INSERT INTO Special_Requests (Booking_ID, Ps_ID, Request_Type, Note, Status, Created_At)
+                VALUES (?, 4, 'Wheelchair Assistance', 'Assistance needed at boarding gate.', 'Pending', datetime('now'))
+                """,
+                (created.get(4),),
+            )
+            conn.execute(
+                """
+                INSERT INTO Special_Requests (Booking_ID, Ps_ID, Request_Type, Note, Status, Created_At)
+                VALUES (?, 8, 'Refund Request', 'Travel plan changed.', 'Pending', datetime('now'))
+                """,
+                (created.get(8),),
+            )
+            conn.execute(
+                """
+                INSERT INTO Special_Requests (Booking_ID, Ps_ID, Request_Type, Note, Status, Reviewed_By_Emp_ID, Created_At, Decided_At)
+                VALUES (?, 3, 'Seat Change', 'Prefer window seat if available.', 'Rejected', 1, datetime('now', '-1 day'), datetime('now'))
+                """,
+                (created.get(3),),
+            )
 
     # ── Auth ──────────────────────────────────────────────────────
     def passenger_options(self):
@@ -503,6 +635,24 @@ class Repository:
 
     def list_airfares(self):
         return self.fetchall("SELECT Fare_ID, Charge_Amount, Description FROM AirFare ORDER BY Fare_ID")
+
+    def list_addons(self):
+        return self.fetchall(
+            "SELECT Addon_Code, Addon_Name, Price FROM Addon_Catalog WHERE Is_Active=1 ORDER BY Price, Addon_Name"
+        )
+
+    def addon_total(self, addon_codes: list[str] | None) -> float:
+        codes = list(dict.fromkeys(addon_codes or []))
+        if not codes:
+            return 0.0
+        placeholders = ",".join("?" for _ in codes)
+        rows = self.fetchall(
+            f"SELECT Addon_Code, Price FROM Addon_Catalog WHERE Is_Active=1 AND Addon_Code IN ({placeholders})",
+            tuple(codes),
+        )
+        if len(rows) != len(codes):
+            raise ValueError("Invalid add-on selected.")
+        return float(sum(float(row["Price"]) for row in rows))
 
     # ── Flights ───────────────────────────────────────────────────
     def list_flights(self, keyword: str = "", flight_date: str = ""):
@@ -630,6 +780,7 @@ class Repository:
         seat_no: str,
         payment_type: str,
         note: str = "",
+        addon_codes: list[str] | None = None,
         seed: bool = False,
     ) -> dict:
         seat_no = normalize_seat(seat_no)
@@ -662,6 +813,21 @@ class Repository:
         if active_count >= int(info["Capacity"]):
             raise ValueError("This flight is full.")
 
+        addon_codes = list(dict.fromkeys(addon_codes or []))
+        addon_rows = []
+        if addon_codes:
+            placeholders = ",".join("?" for _ in addon_codes)
+            rows = conn.execute(
+                f"SELECT Addon_Code, Addon_Name, Price FROM Addon_Catalog WHERE Is_Active=1 AND Addon_Code IN ({placeholders})",
+                tuple(addon_codes),
+            ).fetchall()
+            row_by_code = {row["Addon_Code"]: row for row in rows}
+            if len(row_by_code) != len(addon_codes):
+                raise ValueError("Invalid add-on selected.")
+            addon_rows = [row_by_code[code] for code in addon_codes]
+        addon_total = sum(float(row["Price"]) for row in addon_rows)
+        total_amount = float(info["Charge_Amount"]) + addon_total
+
         max_row = (int(info["Capacity"]) + 5) // 6
         row_num = int(re.match(r"\d+", seat_no).group(0))
         if row_num > max_row:
@@ -679,15 +845,23 @@ class Repository:
             )
             VALUES (?, ?, ?, ?, 'Ticketed', ?, ?, datetime('now'), datetime('now'))
             """,
-            (pnr, ps_id, flight_id, seat_no, info["Fare_ID"], info["Charge_Amount"]),
+            (pnr, ps_id, flight_id, seat_no, info["Fare_ID"], total_amount),
         )
         booking_id = int(cur.lastrowid)
+        for addon in addon_rows:
+            conn.execute(
+                """
+                INSERT INTO Booking_Addons (Booking_ID, Addon_Code, Price_At_Booking)
+                VALUES (?, ?, ?)
+                """,
+                (booking_id, addon["Addon_Code"], addon["Price"]),
+            )
         conn.execute(
             """
             INSERT INTO Payments (Booking_ID, Payment_Type, Amount, Status, Paid_At)
             VALUES (?, ?, ?, 'Captured', datetime('now'))
             """,
-            (booking_id, payment_type, info["Charge_Amount"]),
+            (booking_id, payment_type, total_amount),
         )
         conn.execute(
             "INSERT INTO Tickets (Booking_ID, Ticket_No, Issued_At) VALUES (?, ?, datetime('now'))",
@@ -705,7 +879,7 @@ class Repository:
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (booking_id, booking_date.isoformat(), info["Flight_date"], payment_type, emp_id, ps_id, flight_id, info["Charge_Amount"]),
+            (booking_id, booking_date.isoformat(), info["Flight_date"], payment_type, emp_id, ps_id, flight_id, total_amount),
         )
         if note.strip():
             conn.execute(
@@ -717,9 +891,17 @@ class Repository:
             )
         return {"booking_id": booking_id, "pnr": pnr, "ticket_no": ticket_no}
 
-    def create_paid_booking(self, ps_id: int, flight_id: int, seat_no: str, payment_type: str, note: str = "") -> dict:
+    def create_paid_booking(
+        self,
+        ps_id: int,
+        flight_id: int,
+        seat_no: str,
+        payment_type: str,
+        note: str = "",
+        addon_codes: list[str] | None = None,
+    ) -> dict:
         with self.connect() as conn:
-            result = self._create_paid_booking_conn(conn, ps_id, flight_id, seat_no, payment_type, note)
+            result = self._create_paid_booking_conn(conn, ps_id, flight_id, seat_no, payment_type, note, addon_codes)
             conn.commit()
             return result
 
@@ -914,6 +1096,9 @@ class AirlineApp(tk.Tk):
         self.booking_map: dict[str, int] = {}
         self.passenger_map: dict[str, int] = {}
         self.admin_map: dict[str, int] = {}
+        self.p_addon_vars: dict[str, tk.IntVar] = {}
+        self.addon_name_map: dict[str, str] = {}
+        self.addon_price_map: dict[str, float] = {}
 
         self.title("Airline Management System — Real-Life Booking Flow")
         self.geometry("1280x780")
@@ -1169,8 +1354,33 @@ class AirlineApp(tk.Tk):
         tbl.grid(row=1, column=0, sticky="nsew", padx=(0, 10), pady=(0, 10))
         self.p_flight_tree.bind("<<TreeviewSelect>>", self.on_select_passenger_flight)
 
-        act = tk.Frame(parent, bg=C["card"], padx=16, pady=16)
-        act.grid(row=1, column=1, sticky="nsew", pady=(0, 10))
+        # Scrollable booking panel — content often exceeds window height
+        outer = tk.Frame(parent, bg=C["card"])
+        outer.grid(row=1, column=1, sticky="nsew", pady=(0, 10))
+        outer.rowconfigure(0, weight=1)
+        outer.columnconfigure(0, weight=1)
+
+        bk_canvas = tk.Canvas(outer, bg=C["card"], highlightthickness=0)
+        bk_vsb = ttk.Scrollbar(outer, orient="vertical", command=bk_canvas.yview)
+        bk_canvas.configure(yscrollcommand=bk_vsb.set)
+        bk_canvas.grid(row=0, column=0, sticky="nsew")
+        bk_vsb.grid(row=0, column=1, sticky="ns")
+
+        act = tk.Frame(bk_canvas, bg=C["card"], padx=16, pady=16)
+        bk_win = bk_canvas.create_window((0, 0), window=act, anchor="nw")
+
+        def _bk_resize(event):
+            bk_canvas.itemconfigure(bk_win, width=event.width)
+
+        bk_canvas.bind("<Configure>", _bk_resize)
+        act.bind("<Configure>", lambda e: bk_canvas.configure(scrollregion=bk_canvas.bbox("all")))
+
+        def _bk_scroll(event):
+            bk_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        bk_canvas.bind("<MouseWheel>", _bk_scroll)
+        act.bind("<MouseWheel>", _bk_scroll)
+
         act.columnconfigure(0, weight=1)
         self._label(act, "Pay & Book Now", fg=C["primary"], font=("Segoe UI", 13, "bold")).grid(row=0, column=0, sticky="w")
         self.selected_flight_label = tk.Label(act, text="No flight selected", bg="#EFF6FF", fg=C["accent"], padx=10, pady=8, wraplength=220, justify="left")
@@ -1183,11 +1393,44 @@ class AirlineApp(tk.Tk):
         self.p_payment = ttk.Combobox(act, state="readonly", values=PAYMENT_TYPES)
         self.p_payment.grid(row=6, column=0, sticky="ew", pady=(2, 10))
         self.p_payment.set("Card")
-        self._label(act, "Optional note / special request", fg=C["muted"]).grid(row=7, column=0, sticky="w")
+
+        self._label(act, "Paid add-ons", fg=C["muted"]).grid(row=7, column=0, sticky="w")
+        addon_box = tk.Frame(act, bg=C["card"])
+        addon_box.grid(row=8, column=0, sticky="ew", pady=(2, 8))
+        addon_box.columnconfigure(0, weight=1)
+        addon_box.bind("<MouseWheel>", _bk_scroll)
+        self.p_addon_vars = {}
+        self.addon_name_map = {}
+        self.addon_price_map = {}
+        for i, addon in enumerate(self.repo.list_addons()):
+            code = addon["Addon_Code"]
+            price = float(addon["Price"])
+            self.addon_name_map[code] = addon["Addon_Name"]
+            self.addon_price_map[code] = price
+            var = tk.IntVar(value=0)
+            self.p_addon_vars[code] = var
+            cb = tk.Checkbutton(
+                addon_box,
+                text=f"{addon['Addon_Name']} (+₺{price:,.0f})",
+                variable=var,
+                command=self.update_total_preview,
+                bg=C["card"],
+                fg=C["text"],
+                activebackground=C["card"],
+                font=("Segoe UI", 8),
+                anchor="w",
+                justify="left",
+            )
+            cb.grid(row=i, column=0, sticky="ew")
+            cb.bind("<MouseWheel>", _bk_scroll)
+        self.p_total_label = tk.Label(act, text="Total: select a flight", bg="#F8FAFC", fg=C["primary"], padx=10, pady=7, font=("Segoe UI", 9, "bold"), wraplength=230, justify="left")
+        self.p_total_label.grid(row=9, column=0, sticky="ew", pady=(0, 10))
+
+        self._label(act, "Optional note / special request", fg=C["muted"]).grid(row=10, column=0, sticky="w")
         self.p_note = tk.Text(act, height=3, font=("Segoe UI", 9), bg="#F8FAFC", relief="flat")
-        self.p_note.grid(row=8, column=0, sticky="ew", pady=(2, 10))
-        self._button(act, "💳 Pay & Book Now", C["success"], self.pay_and_book_now).grid(row=9, column=0, sticky="ew")
-        tk.Label(act, text="Payment is simulated. If successful, ticket and PNR are created immediately. Admin approval is not required for normal booking.", bg=C["card"], fg=C["muted"], font=("Segoe UI", 8), justify="left", wraplength=230).grid(row=10, column=0, sticky="w", pady=(8, 0))
+        self.p_note.grid(row=11, column=0, sticky="ew", pady=(2, 10))
+        self._button(act, "💳 Pay & Book Now", C["success"], self.pay_and_book_now).grid(row=12, column=0, sticky="ew")
+        tk.Label(act, text="Payment is simulated. Paid add-ons are included in the ticket total immediately. Admin approval is only for later requests such as cancellation/refund/assistance.", bg=C["card"], fg=C["muted"], font=("Segoe UI", 8), justify="left", wraplength=230).grid(row=13, column=0, sticky="w", pady=(8, 0))
 
     def _passenger_trips_tab(self, parent):
         parent.rowconfigure(1, weight=1)
@@ -1197,9 +1440,9 @@ class AirlineApp(tk.Tk):
         self._button(ctrl, "Refresh", C["muted"], self.refresh_passenger_trips).pack(side="left")
         tbl, self.p_trip_tree = self._make_tree(
             parent,
-            ("Booking", "PNR", "Ticket", "Flight", "Route", "Date", "Seat", "Status", "Amount", "Payment"),
-            [("Booking", "Booking"), ("PNR", "PNR"), ("Ticket", "Ticket"), ("Flight", "Flight"), ("Route", "Route"), ("Date", "Date"), ("Seat", "Seat"), ("Status", "Status"), ("Amount", "Amount"), ("Payment", "Payment")],
-            {"Booking": 70, "PNR": 80, "Ticket": 110, "Flight": 80, "Route": 170, "Date": 100, "Seat": 60, "Status": 110, "Amount": 90, "Payment": 90},
+            ("Booking", "PNR", "Ticket", "Flight", "Route", "Date", "Seat", "Status", "Addons", "Amount", "Payment"),
+            [("Booking", "Booking"), ("PNR", "PNR"), ("Ticket", "Ticket"), ("Flight", "Flight"), ("Route", "Route"), ("Date", "Date"), ("Seat", "Seat"), ("Status", "Status"), ("Addons", "Add-ons"), ("Amount", "Amount"), ("Payment", "Payment")],
+            {"Booking": 70, "PNR": 80, "Ticket": 110, "Flight": 80, "Route": 170, "Date": 100, "Seat": 60, "Status": 110, "Addons": 240, "Amount": 90, "Payment": 90},
         )
         tbl.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
 
@@ -1253,6 +1496,26 @@ class AirlineApp(tk.Tk):
         values = self.p_flight_tree.item(sel[0], "values")
         self.selected_flight_id = int(values[0])
         self.selected_flight_label.configure(text=f"Selected: {values[1]}\n{values[2]}\n{values[3]} {values[4]}-{values[5]}")
+        self.update_total_preview()
+
+    def selected_addon_codes(self) -> list[str]:
+        return [code for code, var in getattr(self, "p_addon_vars", {}).items() if var.get()]
+
+    def update_total_preview(self):
+        if not hasattr(self, "p_total_label"):
+            return
+        if self.selected_flight_id is None:
+            self.p_total_label.configure(text="Total: select a flight")
+            return
+        info = self.repo.flight_capacity_and_price(self.selected_flight_id)
+        if info is None:
+            self.p_total_label.configure(text="Total: flight info not found")
+            return
+        base = float(info["Charge_Amount"])
+        addon_total = sum(self.addon_price_map.get(code, 0.0) for code in self.selected_addon_codes())
+        self.p_total_label.configure(
+            text=f"Base ₺{base:,.2f} + Add-ons ₺{addon_total:,.2f}\nTotal ₺{base + addon_total:,.2f}"
+        )
 
     def pay_and_book_now(self):
         if self.selected_flight_id is None:
@@ -1262,6 +1525,7 @@ class AirlineApp(tk.Tk):
         seat = normalize_seat(self.p_seat.get())
         note = self.p_note.get("1.0", "end").strip()
         payment_type = self.p_payment.get().strip()
+        addon_codes = self.selected_addon_codes()
 
         if not seat:
             messagebox.showwarning("Booking", "Enter or select a seat first.")
@@ -1277,12 +1541,12 @@ class AirlineApp(tk.Tk):
         # Cash can be treated as pay-at-counter / immediate manual collection in this demo.
         # Every other payment type opens a simulated payment screen first.
         if payment_type == "Cash":
-            self._complete_paid_booking(seat, payment_type, note)
+            self._complete_paid_booking(seat, payment_type, note, addon_codes)
             return
 
-        self.open_simulated_payment_window(seat, payment_type, note)
+        self.open_simulated_payment_window(seat, payment_type, note, addon_codes)
 
-    def _complete_paid_booking(self, seat: str, payment_type: str, note: str):
+    def _complete_paid_booking(self, seat: str, payment_type: str, note: str, addon_codes: list[str] | None = None):
         try:
             result = self.repo.create_paid_booking(
                 int(self.current_id),
@@ -1290,6 +1554,7 @@ class AirlineApp(tk.Tk):
                 seat,
                 payment_type,
                 note,
+                addon_codes,
             )
         except Exception as exc:
             messagebox.showerror("Booking", str(exc))
@@ -1297,6 +1562,9 @@ class AirlineApp(tk.Tk):
 
         self.p_seat.delete(0, tk.END)
         self.p_note.delete("1.0", tk.END)
+        for var in getattr(self, "p_addon_vars", {}).values():
+            var.set(0)
+        self.update_total_preview()
         self.refresh_passenger_flights()
         self.refresh_passenger_trips()
         self.refresh_passenger_special_requests()
@@ -1305,15 +1573,20 @@ class AirlineApp(tk.Tk):
             f"Payment completed successfully.\nBooking ticketed immediately.\n\nPNR: {result['pnr']}\nTicket No: {result['ticket_no']}",
         )
 
-    def open_simulated_payment_window(self, seat: str, payment_type: str, note: str):
+    def open_simulated_payment_window(self, seat: str, payment_type: str, note: str, addon_codes: list[str] | None = None):
+        addon_codes = addon_codes or []
         info = self.repo.flight_capacity_and_price(self.selected_flight_id)
         if info is None:
             messagebox.showerror("Payment", "Flight info not found.")
             return
+        base_amount = float(info["Charge_Amount"])
+        addon_total = sum(self.addon_price_map.get(code, 0.0) for code in addon_codes)
+        total_amount = base_amount + addon_total
+        selected_addons = ", ".join(self.addon_name_map.get(code, code) for code in addon_codes) or "None"
 
         win = tk.Toplevel(self)
         win.title("Simulated Payment")
-        win.geometry("430x520")
+        win.geometry("460x580")
         win.resizable(False, False)
         win.configure(bg=C["bg"])
         win.transient(self)
@@ -1347,8 +1620,12 @@ class AirlineApp(tk.Tk):
         tk.Label(summary, text=payment_type, bg="#EFF6FF", fg=C["text"], font=("Segoe UI", 9)).grid(row=0, column=1, sticky="e")
         tk.Label(summary, text="Seat", bg="#EFF6FF", fg=C["muted"], font=("Segoe UI", 8, "bold")).grid(row=1, column=0, sticky="w", pady=(4, 0))
         tk.Label(summary, text=seat, bg="#EFF6FF", fg=C["text"], font=("Segoe UI", 9)).grid(row=1, column=1, sticky="e", pady=(4, 0))
-        tk.Label(summary, text="Amount", bg="#EFF6FF", fg=C["muted"], font=("Segoe UI", 8, "bold")).grid(row=2, column=0, sticky="w", pady=(4, 0))
-        tk.Label(summary, text=f"₺{info['Charge_Amount']:,.2f}", bg="#EFF6FF", fg=C["success"], font=("Segoe UI", 11, "bold")).grid(row=2, column=1, sticky="e", pady=(4, 0))
+        tk.Label(summary, text="Base Fare", bg="#EFF6FF", fg=C["muted"], font=("Segoe UI", 8, "bold")).grid(row=2, column=0, sticky="w", pady=(4, 0))
+        tk.Label(summary, text=f"₺{base_amount:,.2f}", bg="#EFF6FF", fg=C["text"], font=("Segoe UI", 9)).grid(row=2, column=1, sticky="e", pady=(4, 0))
+        tk.Label(summary, text="Add-ons", bg="#EFF6FF", fg=C["muted"], font=("Segoe UI", 8, "bold")).grid(row=3, column=0, sticky="w", pady=(4, 0))
+        tk.Label(summary, text=f"{selected_addons} (+₺{addon_total:,.2f})", bg="#EFF6FF", fg=C["text"], font=("Segoe UI", 9), wraplength=230, justify="right").grid(row=3, column=1, sticky="e", pady=(4, 0))
+        tk.Label(summary, text="Total Amount", bg="#EFF6FF", fg=C["muted"], font=("Segoe UI", 8, "bold")).grid(row=4, column=0, sticky="w", pady=(4, 0))
+        tk.Label(summary, text=f"₺{total_amount:,.2f}", bg="#EFF6FF", fg=C["success"], font=("Segoe UI", 11, "bold")).grid(row=4, column=1, sticky="e", pady=(4, 0))
 
         fields = tk.Frame(card, bg=C["card"])
         fields.grid(row=3, column=0, sticky="ew")
@@ -1415,7 +1692,7 @@ class AirlineApp(tk.Tk):
                 return
             win.grab_release()
             win.destroy()
-            self._complete_paid_booking(seat, payment_type, note)
+            self._complete_paid_booking(seat, payment_type, note, addon_codes)
 
         btn_row = tk.Frame(card, bg=C["card"])
         btn_row.grid(row=5, column=0, sticky="ew", pady=(16, 0))
@@ -1523,7 +1800,7 @@ class AirlineApp(tk.Tk):
             self.p_trip_tree,
             rows,
             lambda r: (
-                r["Booking_ID"], r["PNR"], r["Ticket_No"] or "-", r["Flight_No"], f"{r['Take_Off_point']} → {r['Destination']}", r["Flight_date"], r["Seat_No"], self._status_icon(r["Booking_Status"]), f"{r['Amount']:,.2f}", r["Payment_Type"] or "-",
+                r["Booking_ID"], r["PNR"], r["Ticket_No"] or "-", r["Flight_No"], f"{r['Take_Off_point']} → {r['Destination']}", r["Flight_date"], r["Seat_No"], self._status_icon(r["Booking_Status"]), r["Addons"] or "-", f"{r['Amount']:,.2f}", r["Payment_Type"] or "-",
             ),
         )
         self.refresh_booking_combo()
@@ -1728,9 +2005,9 @@ class AirlineApp(tk.Tk):
         self._button(ctrl, "Refund Selected", C["warning"], lambda: self.admin_cancel_or_refund(True)).pack(side="left", padx=(8, 0))
         tbl, self.a_booking_tree = self._make_tree(
             parent,
-            ("Booking", "PNR", "Passenger", "Ticket", "Flight", "Route", "Date", "Seat", "Status", "Amount", "Payment"),
-            [("Booking", "Booking"), ("PNR", "PNR"), ("Passenger", "Passenger"), ("Ticket", "Ticket"), ("Flight", "Flight"), ("Route", "Route"), ("Date", "Date"), ("Seat", "Seat"), ("Status", "Status"), ("Amount", "Amount"), ("Payment", "Payment")],
-            {"Booking": 70, "PNR": 80, "Passenger": 140, "Ticket": 110, "Flight": 80, "Route": 160, "Date": 100, "Seat": 60, "Status": 110, "Amount": 90, "Payment": 90},
+            ("Booking", "PNR", "Passenger", "Ticket", "Flight", "Route", "Date", "Seat", "Status", "Addons", "Amount", "Payment"),
+            [("Booking", "Booking"), ("PNR", "PNR"), ("Passenger", "Passenger"), ("Ticket", "Ticket"), ("Flight", "Flight"), ("Route", "Route"), ("Date", "Date"), ("Seat", "Seat"), ("Status", "Status"), ("Addons", "Add-ons"), ("Amount", "Amount"), ("Payment", "Payment")],
+            {"Booking": 70, "PNR": 80, "Passenger": 140, "Ticket": 110, "Flight": 80, "Route": 160, "Date": 100, "Seat": 60, "Status": 110, "Addons": 250, "Amount": 90, "Payment": 90},
         )
         tbl.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
         self.a_booking_tree.bind("<<TreeviewSelect>>", self.on_select_admin_booking)
@@ -1740,7 +2017,7 @@ class AirlineApp(tk.Tk):
         self._insert_rows(
             self.a_booking_tree,
             rows,
-            lambda r: (r["Booking_ID"], r["PNR"], r["Passenger_Name"], r["Ticket_No"] or "-", r["Flight_No"], f"{r['Take_Off_point']} → {r['Destination']}", r["Flight_date"], r["Seat_No"], self._status_icon(r["Booking_Status"]), f"{r['Amount']:,.2f}", r["Payment_Type"] or "-"),
+            lambda r: (r["Booking_ID"], r["PNR"], r["Passenger_Name"], r["Ticket_No"] or "-", r["Flight_No"], f"{r['Take_Off_point']} → {r['Destination']}", r["Flight_date"], r["Seat_No"], self._status_icon(r["Booking_Status"]), r["Addons"] or "-", f"{r['Amount']:,.2f}", r["Payment_Type"] or "-"),
         )
 
     def on_select_admin_booking(self, _event=None):
