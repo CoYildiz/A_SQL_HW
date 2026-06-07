@@ -1,57 +1,111 @@
-# AIRLINE MANAGEMENT SYSTEM PROJECT
+# ✈ Airline Management System
 
-A role-based airline management system demo application built with Python and SQLite.
+> A role-based airline management system demo built with **Python** and **SQLite**.  
+> Real-life booking flow: passengers pay and receive tickets immediately; admins manage flights, refunds, and special requests.
 
-## Describing Project Idea
+---
 
-This project is designed to simulate the core functionality of an airline management system. It separates users into two main roles: **Passenger** and **Admin**. Passengers can search for flights, create reservation requests, and track their own requests. Admin users can manage operational data such as flights, countries, airports, routes, airplane types, airfares, and transaction records.
+## 📌 Project Overview
 
-The system is connected directly to the main database tables defined in the ER diagram and uses a password-based authentication structure for secure login.
+This project simulates the core functionality of an airline management system. Users are separated into two roles — **Passenger** and **Admin** — each with their own interface and permissions.
 
-## General Structure
+- **Passengers** can search for available flights, book and pay for tickets, select paid add-ons (extra baggage, pet cabin, meal preference), view their trip history, and submit special requests (seat change, wheelchair assistance, refund, etc.).
+- **Admins** can manage flights, handle special requests (approve/reject), cancel or refund bookings, and view all transactions and booking records.
 
-- When the application is launched for the first time, it automatically runs the `setup.sql` file and creates the `airline.db` database.
-- There are two separate login flows: **Passenger** and **Admin**.
-- All logins are password protected through the `Auth_Accounts` table.
-- The Passenger interface includes flight search, reservation request creation, and request tracking features.
-- The Admin interface includes management of flights, countries, airports, routes, airplane types, airfares, and transactions.
-- New Passenger accounts can be created from the login screen.
-- The application works directly with the main tables in the ER diagram: `Flight`, `Route`, `Passengers`, `Employees`, `Transactions`, `AirFare`, `Airplane_type`, `Airport`, and `Countries`.
+Authentication is handled through the `Auth_Accounts` table with SHA-256 password hashing.
 
-## Running the Application
+---
 
-Run the following command:
+## 🗂 General Structure
+
+- On first launch, the application automatically creates the `airline.db` database and seeds it with demo data.
+- Two separate login flows: **Passenger** and **Admin**.
+- All logins are password-protected via the `Auth_Accounts` table.
+- New Passenger accounts can be registered directly from the login screen.
+- The application works directly with the main ER diagram tables:  
+  `Flight`, `Route`, `Passengers`, `Employees`, `Transactions`, `AirFare`, `Airplane_type`, `Airport`, `Countries`, `Bookings`, `Tickets`, `Payments`, `Special_Requests`, `Booking_Addons`.
+
+### Passenger Interface
+- Search and filter available flights
+- Select seats via interactive seat map
+- Choose paid add-ons at booking time
+- Simulated payment screen (card details)
+- View personal trip history and ticket numbers
+- Submit and track special requests
+
+### Admin Interface
+- Add, update, and delete flights
+- View all bookings and transactions
+- Approve or reject special requests
+- Cancel or refund bookings
+
+---
+
+## ▶ Running the Application
 
 ```bash
 python3 app.py
 ```
 
-If Tkinter support is not installed in your Python environment, the application will not start. In that case, you need to install the required system package.
+The database (`airline.db`) is created automatically on first run — no manual setup required.
 
-## Login Information
+> **Tkinter note:** If Tkinter is not available in your Python environment, the application will not start.  
+> See `requirements.txt` for platform-specific installation instructions.
 
-- The system supports two roles: `Passenger` and `Admin`.
+---
+
+## 🔐 Login Information
+
+| Role | Source | Default Password |
+|---|---|---|
+| Passenger | Seeded demo accounts (26 passengers) | `1234` |
+| Admin | Online Sales System only | `1234` |
+
 - Both roles are authenticated through the `Auth_Accounts` table.
-- Default password for seeded accounts: `1234`.
-- You can also create a new `Passenger` account directly from the login screen.
+- New Passenger accounts can be created from the login screen with a custom password.
 
-## Clean Test (Reset)
+---
 
-If an older database file already exists, the updated schema or seed data may not appear correctly.
+## 🧪 Clean Reset
 
-For a clean installation, run:
+If an existing `airline.db` file is present, old schema or seed data may interfere.  
+To perform a clean reset:
 
 ```bash
 rm -f airline.db
 python3 app.py
 ```
 
-After this, the application will rerun `setup.sql` and recreate the database from scratch.
+The application will recreate the database from scratch on next launch.
 
-## Database
+Alternatively, you can initialise the database manually using the SQL script:
 
-The schema and seed data are defined in [`setup.sql`](setup.sql). The database file is created automatically, so no manual database setup is required.
+```bash
+sqlite3 airline.db < setup.sql
+python3 app.py
+```
 
-Default password for seeded users: `1234`.
+---
 
+## 🗄 Database
 
+The full schema, triggers, views, and seed data are defined in `setup.sql`.
+
+| File | Purpose |
+|---|---|
+| `setup.sql` | Schema definition + seed data |
+| `airline.db` | Auto-generated SQLite database file |
+| `app.py` | Main application (GUI + business logic) |
+| `requirements.txt` | Dependency notes (stdlib only) |
+
+**Default password for all seeded accounts:** `1234`
+
+---
+
+## 🛠 Requirements
+
+- Python >= 3.9
+- Tkinter (system package — not available via pip)
+- SQLite (bundled with Python)
+
+See `requirements.txt` for full details.
