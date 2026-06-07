@@ -1,11 +1,11 @@
-# ✈ Airline Management System
+# Airline Management System
 
 > A role-based airline management system demo built with **Python** and **SQLite**.  
 > Real-life booking flow: passengers pay and receive tickets immediately; admins manage flights, refunds, and special requests.
 
 ---
 
-## 📌 Project Overview
+## Project Overview
 
 This project simulates the core functionality of an airline management system. Users are separated into two roles — **Passenger** and **Admin** — each with their own interface and permissions.
 
@@ -16,7 +16,7 @@ Authentication is handled through the `Auth_Accounts` table with SHA-256 passwor
 
 ---
 
-## 🗂 General Structure
+## General Structure
 
 - On first launch, the application automatically creates the `airline.db` database and seeds it with demo data.
 - Two separate login flows: **Passenger** and **Admin**.
@@ -41,7 +41,7 @@ Authentication is handled through the `Auth_Accounts` table with SHA-256 passwor
 
 ---
 
-## ▶ Running the Application
+## Running the Application
 
 ```bash
 python3 app.py
@@ -54,7 +54,7 @@ The database (`airline.db`) is created automatically on first run — no manual 
 
 ---
 
-## 🔐 Login Information
+## Login Information
 
 | Role | Source | Default Password |
 |---|---|---|
@@ -66,7 +66,7 @@ The database (`airline.db`) is created automatically on first run — no manual 
 
 ---
 
-## 🧪 Clean Reset
+## Clean Reset
 
 If an existing `airline.db` file is present, old schema or seed data may interfere.  
 To perform a clean reset:
@@ -87,7 +87,7 @@ python3 app.py
 
 ---
 
-## 🗄 Database
+## Database
 
 The full schema, triggers, views, and seed data are defined in `setup.sql`.
 
@@ -102,7 +102,7 @@ The full schema, triggers, views, and seed data are defined in `setup.sql`.
 
 ---
 
-## 🛠 Requirements
+## Requirements
 
 - Python >= 3.9
 - Tkinter (system package — not available via pip)
