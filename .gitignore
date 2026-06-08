@@ -1,3 +1,6 @@
 .idea/
 .venvsql/
 *.db
+.backups/
+.git/
+sqlsunum.mp4

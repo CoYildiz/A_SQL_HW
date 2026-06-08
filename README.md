@@ -1,3 +1,8 @@
+
+> Yusuf Yıldız - 21052032
+> Emre Yılmaz - 21052050
+
+
 # Airline Management System
 
 > A role-based airline management system demo built with **Python** and **SQLite**.  
