@@ -3,7 +3,7 @@
 
 > Emre Yılmaz - 21052050
 
-# [Presentation][https://stdyildizedu-my.sharepoint.com/:u:/g/personal/emre_yilmaz13_std_yildiz_edu_tr/IQAmHgJWJ4eqRZ_frgjQ_vqnAX2AGrfa8q9poG7JXUnjvJE?e=He0i87]
+# [Presentation](https://stdyildizedu-my.sharepoint.com/:u:/g/personal/emre_yilmaz13_std_yildiz_edu_tr/IQAmHgJWJ4eqRZ_frgjQ_vqnAX2AGrfa8q9poG7JXUnjvJE?e=He0i87)
 
 # Airline Management System
 
